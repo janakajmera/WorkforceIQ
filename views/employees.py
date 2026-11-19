@@ -101,6 +101,5 @@ with tab_onboard:
                 e = Employee(fn, ln, mail, dob, hd, depts[dn], roles[rn], int(lvl), int(inc), fields[fld], gender=g,
                              marital_status=ms, education_level=edu, business_travel=trv, over_time=ot)
                 ids, sync = em.onboard(e)
-                st.success(f"Onboarded {e.full_name} as employee #{ids['employee_number']}."); report(sync)
             except WorkforceIQError as ex:
                 st.error(str(ex))
