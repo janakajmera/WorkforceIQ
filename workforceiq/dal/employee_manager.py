@@ -32,24 +32,59 @@ class EmployeeManager(BaseManager):
 
     # -- read
     @guarded
-    def search(self, term: str = "", department_id: Optional[int] = None, active_only: bool = True,
-               limit: int = 50, offset: int = 0) -> pd.DataFrame:
+    def search(
+        self,
+        term: str = "",
+        department_id: Optional[int] = None,
+        active_only: bool = True,
+        limit: int = 50,
+        offset: int = 0
+    ) -> pd.DataFrame:
         where, params = ["1=1"], []
-        if term.strip():
-            where.append("(e.last_name LIKE %s OR e.first_name LIKE %s OR e.email LIKE %s OR e.employee_number = %s)")
-            like = f"%{term.strip()}%"
-            params += [like, like, like, int(term) if term.strip().isdigit() else -1]
-        if department_id:
+
+        term = term.strip()
+
+        if term:
+            if term.isdigit():
+                where.append("e.employee_number = %s")
+                params.append(int(term))
+            else:
+                like = f"%{term}%"
+                where.append(
+                    """
+                    (
+                        LOWER(e.first_name) LIKE LOWER(%s)
+                        OR LOWER(e.last_name) LIKE LOWER(%s)
+                        OR LOWER(CONCAT(TRIM(COALESCE(e.first_name, '')), ' ', TRIM(COALESCE(e.last_name, '')))) LIKE LOWER(%s)
+                        OR LOWER(e.email) LIKE LOWER(%s)
+                    )
+                    """
+                )
+                params.extend([like, like, like, like])
+
+        if department_id is not None:
             where.append("e.department_id = %s")
             params.append(department_id)
+
         if active_only:
             where.append("e.termination_date IS NULL")
-        sql = (f"SELECT e.employee_id, e.employee_number, CONCAT(e.first_name,' ',e.last_name) AS name, e.email, "
-               f"d.department_name, jr.role_title AS job_role, e.job_level, e.monthly_income, e.hire_date, "
-               f"e.termination_date FROM {self.oltp}.employees e "
-               f"JOIN {self.oltp}.departments d ON d.department_id = e.department_id "
-               f"JOIN {self.oltp}.job_roles jr ON jr.job_role_id = e.job_role_id "
-               f"WHERE {' AND '.join(where)} ORDER BY e.employee_number LIMIT %s OFFSET %s")
+
+        sql = (
+            f"SELECT e.employee_id, e.employee_number, "
+            f"CONCAT(TRIM(COALESCE(e.first_name, '')), ' ', TRIM(COALESCE(e.last_name, ''))) AS name, "
+            f"e.email, d.department_name, jr.role_title AS job_role, "
+            f"e.job_level, e.monthly_income, e.hire_date, "
+            f"e.termination_date "
+            f"FROM {self.oltp}.employees e "
+            f"JOIN {self.oltp}.departments d "
+            f"ON d.department_id = e.department_id "
+            f"JOIN {self.oltp}.job_roles jr "
+            f"ON jr.job_role_id = e.job_role_id "
+            f"WHERE {' AND '.join(where)} "
+            f"ORDER BY e.employee_number "
+            f"LIMIT %s OFFSET %s"
+        )
+
         return self.fetch_df(sql, params + [limit, offset])
 
     @guarded
