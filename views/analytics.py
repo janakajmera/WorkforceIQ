@@ -56,13 +56,13 @@ try:
     with t4:
         bn = q("project_bottlenecks", 20)
         if not bn.empty:
-            fig = px.bar(bn.head(15), x="bottleneck_score", y="project_code", orientation="h", color="priority",
+            fig = px.bar(bn.head(15), x="bottleneck_score", y="project_code", orientation="h", color="priority",color_discrete_map=RISK_COLORS,
                          hover_data=["project_name", "days_overdue", "overallocated_members"],
                          title="Top bottleneck projects (overdue + over-allocated teams)")
             st.plotly_chart(style_fig(fig, 460).update_yaxes(autorange="reversed"), width="stretch")
             st.dataframe(bn, width="stretch", hide_index=True)
             oa = q("overallocated_by_department")
-            st.plotly_chart(style_fig(px.bar(oa, x="department_name", y="overallocated",
+            st.plotly_chart(style_fig(px.bar(oa, x="department_name", y="overallocated", color="department_name", color_discrete_map=DEPT_COLORS,
                                              title="Over-allocated employees (>100%) by department")),
                             width="stretch")
 except WorkforceIQError as e:

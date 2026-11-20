@@ -94,29 +94,101 @@ FROM active a JOIN wfiq_dw.dim_employee c ON c.employee_id = a.employee_id AND c
 WHERE c.is_active = 1;
 
 -- Project bottlenecks: overdue + over-allocated teams, ranked with DENSE_RANK
+
 CREATE OR REPLACE VIEW wfiq_dw.vw_project_bottlenecks AS
+
 WITH team AS (
-    SELECT fa.project_key, COUNT(DISTINCT e.employee_id) AS headcount, SUM(fa.allocation_pct) / 100 AS total_fte,
-           COUNT(DISTINCT CASE WHEN w.is_overallocated = 1 THEN e.employee_id END) AS overallocated_members
+    SELECT
+        fa.project_key,
+        COUNT(DISTINCT e.employee_id) AS headcount,
+        SUM(fa.allocation_pct) / 100.0 AS total_fte,
+        COUNT(DISTINCT CASE
+            WHEN w.is_overallocated = 1 THEN e.employee_id
+        END) AS overallocated_members
     FROM wfiq_dw.fact_project_assignments fa
-    JOIN wfiq_dw.dim_employee e ON e.employee_key = fa.employee_key
-    LEFT JOIN wfiq_dw.vw_employee_workload w ON w.employee_id = e.employee_id
+    JOIN wfiq_dw.dim_employee e
+        ON e.employee_key = fa.employee_key
+    LEFT JOIN wfiq_dw.vw_employee_workload w
+        ON w.employee_id = e.employee_id
     WHERE fa.is_active = 1
     GROUP BY fa.project_key
 ),
+
 scored AS (
-    SELECT p.project_key, p.project_code, p.project_name, p.owning_department, p.status, p.priority,
-           p.planned_end_date, p.budget, t.headcount, t.total_fte, t.overallocated_members,
-           GREATEST(0, DATEDIFF(CURRENT_DATE, p.planned_end_date)) AS days_overdue,
-           t.overallocated_members / NULLIF(t.headcount, 0) AS overallocated_share
-    FROM wfiq_dw.dim_project p JOIN team t ON t.project_key = p.project_key
-    WHERE p.status IN ('Active', 'On Hold') AND t.headcount >= 3   -- ignore tiny teams
+    SELECT
+        p.project_key,
+        p.project_code,
+        p.project_name,
+        p.owning_department,
+        p.status,
+        p.priority,
+        p.planned_end_date,
+        p.budget,
+        t.headcount,
+        t.total_fte,
+        t.overallocated_members,
+
+        COALESCE(
+            GREATEST(0, DATEDIFF(CURRENT_DATE, p.planned_end_date)),
+            0
+        ) AS days_overdue,
+
+        COALESCE(
+            t.overallocated_members / NULLIF(t.headcount, 0),
+            0
+        ) AS overallocated_share
+
+    FROM wfiq_dw.dim_project p
+    JOIN team t
+        ON t.project_key = p.project_key
+    WHERE p.status IN ('Active', 'On Hold')
+      AND t.headcount >= 3
+),
+
+calculated AS (
+    SELECT
+        s.*,
+
+        ROUND(
+            50 * LEAST(s.days_overdue / 90.0, 1),
+            2
+        ) AS delay_score,
+
+        ROUND(
+            50 * s.overallocated_share,
+            2
+        ) AS allocation_score,
+
+        ROUND(
+            50 * LEAST(s.days_overdue / 90.0, 1)
+            + 50 * s.overallocated_share,
+            1
+        ) AS bottleneck_score
+
+    FROM scored s
+),
+
+ranked AS (
+    SELECT
+        c.*,
+
+        CASE
+            WHEN c.bottleneck_score >= 80 THEN 'Critical'
+            WHEN c.bottleneck_score >= 60 THEN 'High'
+            WHEN c.bottleneck_score >= 30 THEN 'Medium'
+            ELSE 'Low'
+        END AS bottleneck_severity,
+
+        DENSE_RANK() OVER (
+            ORDER BY c.bottleneck_score DESC
+        ) AS bottleneck_rank
+
+    FROM calculated c
 )
-SELECT s.*, ROUND(LEAST(100, (CASE WHEN s.days_overdue > 0 THEN 40 ELSE 0 END)
-                           + 60 * COALESCE(s.overallocated_share, 0)), 1) AS bottleneck_score,
-       DENSE_RANK() OVER (ORDER BY (CASE WHEN s.days_overdue > 0 THEN 40 ELSE 0 END)
-                                   + 60 * COALESCE(s.overallocated_share, 0) DESC) AS bottleneck_rank
-FROM scored s;
+
+SELECT *
+FROM ranked;
+
 
 -- Leavers vs headcount by year (uses dim_date for the year list)
 CREATE OR REPLACE VIEW wfiq_dw.vw_attrition_by_year AS

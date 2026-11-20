@@ -6,7 +6,7 @@ import streamlit as st
 INK, TEAL, SAFFRON, ROSE, MIST = "#16262E", "#0F766E", "#E2A400", "#B4443C", "#E6EEEC"
 DEPT_COLORS = {"Research & Development": TEAL, "Sales": SAFFRON, "Human Resources": "#5B6C9D",
                "All departments": INK}
-RISK_COLORS = {"Low": "#7FA99B", "Medium": SAFFRON, "High": ROSE}
+RISK_COLORS = {"Low": "#7FA99B", "Medium": SAFFRON, "High": ROSE, "Critical": "#6B1515"}
 
 _CSS = f"""
 <style>
